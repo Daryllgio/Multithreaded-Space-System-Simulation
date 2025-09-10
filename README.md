@@ -1,64 +1,147 @@
-Multithreaded Space System Simulation
+# **Multithreaded Space System Simulation**
 
-This project is a multithreaded simulation of a space system, where different subsystems operate concurrently, sharing and managing critical resources such as fuel and oxygen.
-A central manager oversees the entire operation, ensuring smooth resource allocation and system synchronization. 
-The simulation demonstrates concepts like multithreading, resource management, event handling, and dynamic data structures.
+## **Overview**
 
-I) Overview
+A concurrent, event-driven simulation of a spacecraft where **propulsion**, **life support**, **crew capsule**, and **generator** subsystems run in parallel and contend for shared resources (**Fuel**, **Oxygen**, **Energy**, **Distance**). A central **Manager** monitors events, adjusts system speeds, and decides when to terminate the run (e.g., **oxygen depletion** or **destination reached**). &#x20;
 
-The simulation consists of various subsystems such as propulsion, life support, and energy generation. 
-These subsystems consume and produce resources, with their operations managed by a central event-driven mechanism. 
-The simulation is designed to run until a defined goal (e.g., reaching a destination) or critical failure (e.g., resource depletion) occurs.
+---
 
-II) Features
+## **Architecture**
 
- - Concurrent Subsystems: Each system runs on its own thread, simulating real-world multitasking.
+```mermaid
+flowchart LR
+  U["main.c<br/>entrypoint & thread startup"] --> M["manager.c<br/>event loop & console UI"];
+  U --> S1["system.c<br/>Propulsion"];
+  U --> S2["system.c<br/>Life Support"];
+  U --> S3["system.c<br/>Crew Capsule"];
+  U --> S4["system.c<br/>Generator"];
 
- - Shared Resource Management: Resources such as fuel and oxygen are shared among subsystems, with semaphores ensuring safe access.
+  subgraph Shared State
+    R["resource.c<br/>Fuel, Oxygen, Energy, Distance"]
+    Q["event.c<br/>priority queue + semaphore"]
+  end
 
- - Priority-Based Event Queue: Critical events are handled based on their priority to ensure the stability of the system.
+  S1 --- R; S2 --- R; S3 --- R; S4 --- R;
+  S1 -. push/pop .-> Q; S2 -. push/pop .-> Q; S3 -. push/pop .-> Q; S4 -. push/pop .-> Q;
+  M  -. consumes .-> Q;
+  M  --- R;
+```
 
- - Dynamic Resource Allocation: Arrays dynamically resize to accommodate additional systems or resources as needed.
+* Threads are created for the **Manager** and for each **System** using **pthreads**.&#x20;
+* Resources and the event queue are protected with **POSIX semaphores** for thread-safe access. &#x20;
+* The Manager renders a live **console dashboard** using ANSI escape codes and processes events to **speed up**, **slow down**, or **terminate** systems.&#x20;
 
- - Live Simulation Display: Real-time updates on system statuses and resource levels are displayed to the console.
+---
 
-III) How It Works
+## **Key Concepts (from the code)**
 
-- Initialization:
-   The manager initializes all resources, systems, and the event queue. Subsystems are configured with their resource consumption and production rates.
+### **Subsystems run concurrently**
 
-- Subsystem Operations:
-   Each system runs in its own thread, consuming input resources and producing output resources. If resources are insufficient, the system generates an event, notifying the manager.
+`main.c` initializes data, starts the manager thread, then spawns a thread per system and joins them on shutdown.&#x20;
 
-- Event Handling:
-   Events are added to a priority queue, ensuring critical issues are addressed first. The manager processes these events and adjusts subsystem behaviors (e.g., speeding up, slowing down, or stopping).
+### **Shared-resource safety**
 
-- Simulation End:
-   The simulation ends when critical conditions are met, such as oxygen depletion or reaching the destination.
+* Each `Resource` has its own semaphore; producers/consumers acquire it before changing `amount`. &#x20;
+* The `EventQueue` is guarded by a queue-level semaphore.&#x20;
 
-IV) File Structure
+### **Priority event queue**
 
-project-directory
- - defs.h: Global definitions and data structures
- - main.c: Entry point of the simulation
- - manager.c: Handles overall simulation management
- - system.c: Implements subsystem behaviors
- - resource.c: Manages resources and their allocation
- - event.c: Handles event creation and the event queue
- - Makefile: Automates the build process
+Events (e.g., **EMPTY**, **LOW**, **CAPACITY**) are inserted **sorted by priority**, and the manager pops the **highest priority** first.&#x20;
 
-V) Technologies Used
+### **Manager policy**
 
- - C Programming Language: Core implementation of the simulation.
+* Detects **Oxygen EMPTY** or **Distance at CAPACITY** → **terminate** all systems and end simulation.
+* Otherwise: resource **LOW/EMPTY/INSUFFICIENT** → set relevant producers to **FAST**; **CAPACITY** → set to **SLOW**.&#x20;
 
- - POSIX Threads: Enables multithreading for concurrent subsystem operations.
+### **Dynamic growth**
 
- - Semaphores: Ensures thread-safe access to shared resources.
+Arrays for **resources** and **systems** **double** capacity as elements are added (no `realloc`). &#x20;
 
- - GCC Compiler: Used to build the project.
+### **Processing model**
 
-VI) Acknowledgments
+A system:
 
-Developed by Daryll Giovanny Bikak Mbal as part of the COMP2401 coursework.
+1. **Consumes** its input (if available) under lock; otherwise emits a HIGH-priority event.
+2. Simulates **processing time** that scales with status (**SLOW/FAST**).
+3. **Stores** produced output respecting capacity; on overflow, emits a **CAPACITY** event.&#x20;
 
-Special thanks to the teaching team and resources provided during the course.
+---
+
+## **What’s Included (Files)**
+
+* `defs.h` — Types, constants, and public prototypes.
+* `main.c` — Entrypoint; constructs resources/systems and starts threads.&#x20;
+* `manager.c` — Manager init/loop; event handling; live console display.&#x20;
+* `system.c` — System lifecycle (convert, sleep, store) + dynamic array of systems.&#x20;
+* `resource.c` — Resource type, semaphore, and dynamic array of resources.&#x20;
+* `event.c` — Event struct + **priority queue** with semaphore (push/pop/cleanup).&#x20;
+* `Makefile` — Build automation (also supports manual GCC build).
+
+---
+
+## **Sample Runtime**
+
+On each update the Manager prints current **resource levels** and **system statuses**. When an event is processed you’ll see lines like:
+
+```
+Event: [Propulsion] Reported Resource [Oxygen : 0] Status [0]
+Oxygen depleted. Terminating all systems.
+Destination reached. Terminating all systems.
+```
+
+
+
+---
+
+## **Building & Running**
+
+### **Option A — Make**
+
+```bash
+make
+./project2
+```
+
+*(Binary name may differ based on your Makefile rules.)*
+
+### **Option B — Manual GCC**
+
+```bash
+gcc -std=c11 -Wall -Wextra -pthread \
+  main.c manager.c system.c resource.c event.c \
+  -o project2
+./project2
+```
+
+---
+
+## **Default Scenario (from `main.c`)**
+
+* **Resources**: Fuel(1000/1000), Oxygen(20/50), Energy(30/50), Distance(0/5000).
+* **Systems**:
+
+  * **Propulsion**: consumes Fuel(5), produces Distance(25).
+  * **Life Support**: consumes Energy(7), produces Oxygen(4).
+  * **Crew**: consumes Oxygen(1), produces nothing.
+  * **Generator**: consumes Fuel(5), produces Energy(10).&#x20;
+
+---
+
+## **Extending the Simulation**
+
+* Add a new `System` by defining its **consumed** / **produced** `ResourceAmount`, a **processing time**, and pass the `EventQueue`; then push it into the `SystemArray`. &#x20;
+* Introduce new resource types with `resource_create` and register them in the `ResourceArray`.&#x20;
+* Modify manager policy (e.g., different termination or throttling rules) in `manager_run`.&#x20;
+
+---
+
+## **Coursework & Metadata**
+
+Project authored by **Daryll Giovanny Bikak Mbal** (COMP2401). Score metadata is included in `metadata.yml`. &#x20;
+
+---
+
+## **License**
+
+Use freely for learning and experimentation.
+
