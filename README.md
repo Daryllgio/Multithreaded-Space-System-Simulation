@@ -127,14 +127,6 @@ gcc -std=c11 -Wall -Wextra -pthread \
 
 ---
 
-## **Extending the Simulation**
-
-* Add a new `System` by defining its **consumed** / **produced** `ResourceAmount`, a **processing time**, and pass the `EventQueue`; then push it into the `SystemArray`. &#x20;
-* Introduce new resource types with `resource_create` and register them in the `ResourceArray`.&#x20;
-* Modify manager policy (e.g., different termination or throttling rules) in `manager_run`.&#x20;
-
----
-
 ## **Coursework & Metadata**
 
 Project authored by **Daryll Giovanny Bikak Mbal** (COMP2401). Score metadata is included in `metadata.yml`. &#x20;
